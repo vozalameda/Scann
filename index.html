@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Scanner</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #0b0b0f;
+      font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      overflow: hidden;
+    }
+
+    .wrap {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+               env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    .center {
+      display: grid;
+      place-items: center;
+      gap: 18px;
+      text-align: center;
+    }
+
+    /* “Radar/WiFi waves” without GIF */
+    .waves {
+      width: 220px;
+      height: 220px;
+      position: relative;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      filter: drop-shadow(0 0 10px rgba(120, 255, 170, 0.15));
+    }
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(120, 255, 170, 0.9);
+      box-shadow: 0 0 12px rgba(120, 255, 170, 0.8);
+    }
+    .ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      border: 2px solid rgba(120, 255, 170, 0.35);
+      transform: scale(0.2);
+      opacity: 0;
+      animation: ping 2.1s infinite;
+    }
+    .ring:nth-child(1) { animation-delay: 0.0s; }
+    .ring:nth-child(2) { animation-delay: 0.7s; }
+    .ring:nth-child(3) { animation-delay: 1.4s; }
+
+    @keyframes ping {
+      0%   { transform: scale(0.25); opacity: 0; }
+      15%  { opacity: 0.6; }
+      100% { transform: scale(1.05); opacity: 0; }
+    }
+
+    .label {
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.75);
+      font-size: 16px;
+    }
+
+    /* Red flashing overlay when “alert” is active */
+    .flash {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: rgba(255, 0, 0, 0.0);
+      opacity: 0;
+    }
+    body.alert .flash {
+      animation: flash 0.22s infinite alternate;
+    }
+    @keyframes flash {
+      from { opacity: 0.05; }
+      to   { opacity: 0.55; }
+    }
+
+    .hint {
+      position: fixed;
+      bottom: 18px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 12px;
+      color: rgba(255,255,255,0.35);
+      padding: 0 16px calc(18px + env(safe-area-inset-bottom));
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="app">
+    <div class="center">
+      <div class="waves" aria-hidden="true">
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="dot"></div>
+      </div>
+      <div class="label">scanning</div>
+    </div>
+    <div class="flash"></div>
+      </div>
+
+  <script>
+    // iPhone/Safari: sound must be started by a user gesture (tap). This code does that.
+
+    let audioCtx = null;
+    let osc = null;
+    let gain = null;
+
+    let alertOn = false;
+    let pulseIndex = 0;
+    let pulseTimeout = null;
+
+    // [duration_ms, volume]
+    const pattern = [
+      [120, 0.22],
+      [90,  0.00],
+      [120, 0.22],
+      [250, 0.00],
+    ];
+
+    function ensureAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      osc = audioCtx.createOscillator();
+      gain = audioCtx.createGain();
+
+      // “buzz”-ish tone
+      osc.type = 'square';
+      osc.frequency.value = 750;
+
+      // start silent
+      gain.gain.value = 0.0;
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+    }
+
+    function setVolume(vol) {
+      if (!audioCtx || !gain) return;
+      const t = audioCtx.currentTime;
+      gain.gain.cancelScheduledValues(t);
+      gain.gain.setTargetAtTime(vol, t, 0.01);
+    }
+
+    function schedulePulse() {
+      if (!alertOn) return;
+
+      const [ms, vol] = pattern[pulseIndex];
+      setVolume(vol);
+
+      pulseIndex = (pulseIndex + 1) % pattern.length;
+      pulseTimeout = setTimeout(schedulePulse, ms);
+    }
+
+    async function startBuzz() {
+      ensureAudio();
+
+      // iOS: resume must happen after a user gesture (we call startBuzz from the tap handler)
+      if (audioCtx.state !== 'running') {
+        try { await audioCtx.resume(); } catch (e) {}
+      }
+
+      pulseIndex = 0;
+      if (pulseTimeout) clearTimeout(pulseTimeout);
+      schedulePulse();
+    }
+
+    function stopBuzz() {
+      if (pulseTimeout) {
+        clearTimeout(pulseTimeout);
+        pulseTimeout = null;
+      }
+      setVolume(0.0);
+    }
+
+    function toggleAlert() {
+      alertOn = !alertOn;
+      document.body.classList.toggle('alert', alertOn);
+
+      if (alertOn) startBuzz();
+      else stopBuzz();
+    }
+
+    // Tap anywhere toggles alert
+    window.addEventListener('pointerup', toggleAlert, { passive: true });
+
+    // If page is hidden, silence audio
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && alertOn) {
+        alertOn = false;
+        document.body.classList.remove('alert');
+        stopBuzz();
+      }
+    });
+  </script>
+</body>
+</html>
