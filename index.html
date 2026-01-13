@@ -42,7 +42,7 @@
       border-radius: 999px;
       display: grid;
       place-items: center;
-      filter: drop-shadow(0 0 10px rgba(120, 255, 170, 0.15));
+      filter: drop-shadow(0 0 16px rgba(120, 255, 170, 0.22));
     }
     .dot {
       width: 12px;
@@ -55,7 +55,8 @@
       position: absolute;
       inset: 0;
       border-radius: 999px;
-      border: 2px solid rgba(120, 255, 170, 0.35);
+      border: 4px solid rgba(120, 255, 170, 0.55);
+      box-shadow: 0 0 18px rgba(120, 255, 170, 0.18) inset;
       transform: scale(0.2);
       opacity: 0;
       animation: ping 2.1s infinite;
@@ -117,7 +118,8 @@
       <div class="label">scanning</div>
     </div>
     <div class="flash"></div>
-      </div>
+    <div class="hint"></div>
+  </div>
 
   <script>
     // iPhone/Safari: sound must be started by a user gesture (tap). This code does that.
@@ -195,7 +197,7 @@
       setVolume(0.0);
     }
 
-    function toggleAlert() {
+    function toggleAlert_REMOVED() {
       alertOn = !alertOn;
       document.body.classList.toggle('alert', alertOn);
 
@@ -204,7 +206,7 @@
     }
 
     // Tap anywhere toggles alert
-    window.addEventListener('pointerup', toggleAlert, { passive: true });
+    
 
     // If page is hidden, silence audio
     document.addEventListener('visibilitychange', () => {
@@ -214,6 +216,36 @@
         stopBuzz();
       }
     });
+  // Press-and-hold anywhere: alert ON while pressing, OFF on release/cancel
+    function startAlert() {
+      if (alertOn) return;
+      alertOn = true;
+      document.body.classList.add('alert');
+      startBuzz();
+    }
+
+    function stopAlert() {
+      if (!alertOn) return;
+      alertOn = false;
+      document.body.classList.remove('alert');
+      stopBuzz();
+    }
+
+    // Use pointer events (touch + mouse)
+    window.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      startAlert();
+    }, { passive: true });
+
+    window.addEventListener('pointerup', stopAlert, { passive: true });
+    window.addEventListener('pointercancel', stopAlert, { passive: true });
+    window.addEventListener('pointerleave', stopAlert, { passive: true });
+
+    // If page is hidden, silence audio
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopAlert();
+    });
+
   </script>
 </body>
 </html>
