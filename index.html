@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Scanner</title>
-  <!-- build: 2026-01-13-v12 -->
+  <!-- build: 2026-01-13-v5 -->
   <style>
     :root { color-scheme: dark; }
     html, body {
@@ -148,7 +148,7 @@
         <div class="ring"></div>
         <div class="dot"></div>
       </div>
-      <div class="label" id="label">SCANNING</div>
+      <div class="label" id="label">SCANNING...</div>
     </div>
 
     <div class="flash"></div>
@@ -180,8 +180,8 @@
 
     function hardVerify() {
       // 1) Verify label text exactly
-      if (label.textContent !== "SCANNING") {
-        label.textContent = "SCANNING"; // force
+      if (label.textContent !== "SCANNING...") {
+        label.textContent = "SCANNING..."; // force
       }
 
       // 2) Verify waves size (CSS)
