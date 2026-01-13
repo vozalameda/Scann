@@ -21,9 +21,6 @@
       touch-action: none; /* important for iOS gesture handling */
     }
 
-    /* Very obvious visual response */
-    body.alert { background: #2b0000; }
-
     .wrap {
       height: 100%;
       width: 100%;
@@ -87,6 +84,19 @@
       opacity: 0;
       animation: ping 2.0s infinite;
     }
+    /* ALERT COLOR SWITCH (only waves change color; background stays unchanged) */
+    body.alert .waves {
+      filter: drop-shadow(0 0 18px rgba(255, 80, 80, 0.26));
+    }
+    body.alert .dot {
+      background: rgba(255, 80, 80, 0.98);
+      box-shadow: 0 0 18px rgba(255, 80, 80, 0.9);
+    }
+    body.alert .ring {
+      border: 5px solid rgba(255, 80, 80, 0.58);
+      box-shadow: 0 0 22px rgba(255, 80, 80, 0.20) inset;
+    }
+
     .ring:nth-child(1) { animation-delay: 0.0s; }
     .ring:nth-child(2) { animation-delay: 0.66s; }
     .ring:nth-child(3) { animation-delay: 1.33s; }
@@ -160,18 +170,13 @@
 
     let audioCtx = null, osc = null, gain = null;
     let alertOn = false;
-    let pulseIndex = 0;
-    let pulseTimeout = null;
 
-    let pressStartMs = 0;
-    let stopTimer = null;
-
-    const pattern = [
-      [120, 0.28],
-      [90,  0.00],
-      [120, 0.28],
-      [250, 0.00],
-    ];
+    // v11 ascending-only siren burst parameters (locked)
+    const FREQ_LOW = 420;
+    const FREQ_HIGH = 780;
+    const BURST_ON_MS = 800;
+    const BURST_OFF_MS = 20;
+    let burstTimer = null;
 
     function hardVerify() {
       // 1) Verify label text exactly
@@ -197,43 +202,80 @@
     function ensureAudio() {
       if (audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
       osc = audioCtx.createOscillator();
       gain = audioCtx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = 750;
+
+      // Timbre: sawtooth (as requested)
+      osc.type = 'sawtooth';
+      osc.frequency.value = FREQ_LOW;
+
       gain.gain.value = 0.0;
+
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.start();
     }
 
-    function setVolume(vol) {
+    function soundOnWithAscendingSweep() {
+      ensureAudio();
+
+      // iPhone requirement: resume in user gesture path (no await)
+      try { if (audioCtx.state !== 'running') audioCtx.resume(); } catch (e) {}
+
+      const t = audioCtx.currentTime;
+
+      // Reset to low, then ramp up ONLY
+      osc.frequency.cancelScheduledValues(t);
+      osc.frequency.setValueAtTime(FREQ_LOW, t);
+      osc.frequency.linearRampToValueAtTime(FREQ_HIGH, t + (BURST_ON_MS / 1000));
+
+      // Gain on
+      gain.gain.cancelScheduledValues(t);
+      gain.gain.setTargetAtTime(0.35, t, 0.02);
+    }
+
+    function soundOff() {
       if (!audioCtx || !gain) return;
       const t = audioCtx.currentTime;
       gain.gain.cancelScheduledValues(t);
-      gain.gain.setTargetAtTime(vol, t, 0.01);
+      gain.gain.setTargetAtTime(0.0, t, 0.02);
     }
 
-    function schedulePulse() {
-      if (!alertOn) return;
-      const [ms, vol] = pattern[pulseIndex];
-      setVolume(vol);
-      pulseIndex = (pulseIndex + 1) % pattern.length;
-      pulseTimeout = setTimeout(schedulePulse, ms);
+    function startBurstLoop() {
+      soundOnWithAscendingSweep();
+
+      burstTimer = setTimeout(() => {
+        // Pause at max frequency
+        soundOff();
+
+        burstTimer = setTimeout(() => {
+          if (alertOn) startBurstLoop();
+        }, BURST_OFF_MS);
+
+      }, BURST_ON_MS);
     }
 
-    async function startBuzz() {
-      ensureAudio();
-      if (audioCtx.state !== 'running') {
-        try { await audioCtx.resume(); } catch (e) {}
+    function stopBurstLoop() {
+      if (burstTimer) {
+        clearTimeout(burstTimer);
+        burstTimer = null;
       }
-      pulseIndex = 0;
-      if (pulseTimeout) clearTimeout(pulseTimeout);
-      schedulePulse();
+      soundOff();
+    }
+
+    function startBuzz() {
+      // Start repeating ascending bursts while pressed
+      if (burstTimer) {
+        clearTimeout(burstTimer);
+        burstTimer = null;
+      }
+      startBurstLoop();
     }
 
     function stopBuzz() {
-      if (pulseTimeout) { clearTimeout(pulseTimeout); pulseTimeout = null; }
+      stopBurstLoop();
+    }
       setVolume(0.0);
     }
 
