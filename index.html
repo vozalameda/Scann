@@ -1,13 +1,12 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <!-- build: 2026-01-13-TEST -->
-
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Scanner</title>
+  <!-- build: 2026-01-13-v3 -->
   <style>
     :root { color-scheme: dark; }
     html, body {
@@ -17,10 +16,10 @@
       font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       user-select: none;
       -webkit-user-select: none;
-      touch-action: manipulation;
+      -webkit-touch-callout: none;
+      touch-action: none;
       overflow: hidden;
     }
-
     .wrap {
       height: 100%;
       display: grid;
@@ -28,7 +27,6 @@
       padding: env(safe-area-inset-top) env(safe-area-inset-right)
                env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
-
     .center {
       display: grid;
       place-items: center;
@@ -36,40 +34,40 @@
       text-align: center;
     }
 
-    /* “Radar/WiFi waves” without GIF */
+    /* Waves: thicker and more visible */
     .waves {
-      width: 220px;
-      height: 220px;
+      width: 240px;
+      height: 240px;
       position: relative;
       border-radius: 999px;
       display: grid;
       place-items: center;
-      filter: drop-shadow(0 0 16px rgba(120, 255, 170, 0.22));
+      filter: drop-shadow(0 0 18px rgba(120, 255, 170, 0.26));
     }
     .dot {
-      width: 12px;
-      height: 12px;
+      width: 14px;
+      height: 14px;
       border-radius: 999px;
-      background: rgba(120, 255, 170, 0.9);
-      box-shadow: 0 0 12px rgba(120, 255, 170, 0.8);
+      background: rgba(120, 255, 170, 0.98);
+      box-shadow: 0 0 18px rgba(120, 255, 170, 0.9);
     }
     .ring {
       position: absolute;
       inset: 0;
       border-radius: 999px;
-      border: 4px solid rgba(120, 255, 170, 0.55);
-      box-shadow: 0 0 18px rgba(120, 255, 170, 0.18) inset;
+      border: 5px solid rgba(120, 255, 170, 0.58);
+      box-shadow: 0 0 22px rgba(120, 255, 170, 0.20) inset;
       transform: scale(0.2);
       opacity: 0;
-      animation: ping 2.1s infinite;
+      animation: ping 2.0s infinite;
     }
     .ring:nth-child(1) { animation-delay: 0.0s; }
-    .ring:nth-child(2) { animation-delay: 0.7s; }
-    .ring:nth-child(3) { animation-delay: 1.4s; }
+    .ring:nth-child(2) { animation-delay: 0.66s; }
+    .ring:nth-child(3) { animation-delay: 1.33s; }
 
     @keyframes ping {
       0%   { transform: scale(0.25); opacity: 0; }
-      15%  { opacity: 0.6; }
+      12%  { opacity: 0.82; }
       100% { transform: scale(1.05); opacity: 0; }
     }
 
@@ -80,36 +78,20 @@
       font-size: 16px;
     }
 
-    /* Red flashing overlay when “alert” is active */
+    /* Flash: more obvious */
     .flash {
       position: fixed;
       inset: 0;
       pointer-events: none;
-      background: rgba(255, 0, 0, 0.0);
       opacity: 0;
+      background: rgba(255, 0, 0, 0.0);
     }
-    body.alert .flash {
-      animation: flash 0.22s infinite alternate;
-    }
-    @keyframes flash {
-      from { opacity: 0.05; }
-      to   { opacity: 0.55; }
-    }
-
-    .hint {
-      position: fixed;
-      bottom: 18px;
-      left: 0;
-      right: 0;
-      text-align: center;
-      font-size: 12px;
-      color: rgba(255,255,255,0.35);
-      padding: 0 16px calc(18px + env(safe-area-inset-bottom));
-    }
+    body.alert .flash { animation: flash 0.16s infinite alternate; }
+    @keyframes flash { from { opacity: 0.10; } to { opacity: 0.70; } }
   </style>
 </head>
 <body>
-  <div class="wrap" id="app">
+  <div class="wrap">
     <div class="center">
       <div class="waves" aria-hidden="true">
         <div class="ring"></div>
@@ -120,11 +102,13 @@
       <div class="label">scanning</div>
     </div>
     <div class="flash"></div>
-    <div class="hint"></div>
   </div>
 
   <script>
-    // iPhone/Safari: sound must be started by a user gesture (tap). This code does that.
+    // Behavior:
+    // - Alert ON while pressing.
+    // - On very quick taps, keep alert ON briefly so it is visible/audible.
+    // - Pointer + touch + mouse fallbacks.
 
     let audioCtx = null;
     let osc = null;
@@ -134,28 +118,26 @@
     let pulseIndex = 0;
     let pulseTimeout = null;
 
-    // [duration_ms, volume]
+    let pressStartMs = 0;
+    let stopTimer = null;
+
+    const MIN_ALERT_MS = 450; // ensures quick taps still show/sound
+
     const pattern = [
-      [120, 0.22],
+      [120, 0.26],
       [90,  0.00],
-      [120, 0.22],
+      [120, 0.26],
       [250, 0.00],
     ];
 
     function ensureAudio() {
       if (audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
       osc = audioCtx.createOscillator();
       gain = audioCtx.createGain();
-
-      // “buzz”-ish tone
       osc.type = 'square';
       osc.frequency.value = 750;
-
-      // start silent
       gain.gain.value = 0.0;
-
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.start();
@@ -170,22 +152,17 @@
 
     function schedulePulse() {
       if (!alertOn) return;
-
       const [ms, vol] = pattern[pulseIndex];
       setVolume(vol);
-
       pulseIndex = (pulseIndex + 1) % pattern.length;
       pulseTimeout = setTimeout(schedulePulse, ms);
     }
 
     async function startBuzz() {
       ensureAudio();
-
-      // iOS: resume must happen after a user gesture (we call startBuzz from the tap handler)
       if (audioCtx.state !== 'running') {
         try { await audioCtx.resume(); } catch (e) {}
       }
-
       pulseIndex = 0;
       if (pulseTimeout) clearTimeout(pulseTimeout);
       schedulePulse();
@@ -199,41 +176,31 @@
       setVolume(0.0);
     }
 
-    function toggleAlert_REMOVED() {
-      alertOn = !alertOn;
-      document.body.classList.toggle('alert', alertOn);
-
-      if (alertOn) startBuzz();
-      else stopBuzz();
-    }
-
-    // Tap anywhere toggles alert
-    
-
-    // If page is hidden, silence audio
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden && alertOn) {
-        alertOn = false;
-        document.body.classList.remove('alert');
-        stopBuzz();
-      }
-    });
-  // Press-and-hold anywhere: alert ON while pressing, OFF on release/cancel
     function startAlert() {
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
       if (alertOn) return;
       alertOn = true;
+      pressStartMs = Date.now();
       document.body.classList.add('alert');
       startBuzz();
     }
 
     function stopAlert() {
       if (!alertOn) return;
-      alertOn = false;
-      document.body.classList.remove('alert');
-      stopBuzz();
+
+      const elapsed = Date.now() - pressStartMs;
+      const remaining = Math.max(0, MIN_ALERT_MS - elapsed);
+
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+      stopTimer = setTimeout(() => {
+        alertOn = false;
+        document.body.classList.remove('alert');
+        stopBuzz();
+        stopTimer = null;
+      }, remaining);
     }
 
-    // Use pointer events (touch + mouse)
+    // Pointer events
     window.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       startAlert();
@@ -243,11 +210,19 @@
     window.addEventListener('pointercancel', stopAlert, { passive: true });
     window.addEventListener('pointerleave', stopAlert, { passive: true });
 
+    // Touch fallbacks
+    window.addEventListener('touchstart', startAlert, { passive: true });
+    window.addEventListener('touchend', stopAlert, { passive: true });
+    window.addEventListener('touchcancel', stopAlert, { passive: true });
+
+    // Mouse fallbacks
+    window.addEventListener('mousedown', (e) => { if (e.button === 0) startAlert(); }, { passive: true });
+    window.addEventListener('mouseup', stopAlert, { passive: true });
+
     // If page is hidden, silence audio
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) stopAlert();
     });
-
   </script>
 </body>
 </html>
