@@ -89,12 +89,12 @@
       filter: drop-shadow(0 0 18px rgba(255, 80, 80, 0.26));
     }
     body.alert .dot {
-      background: rgba(255, 80, 80, 0.98);
-      box-shadow: 0 0 18px rgba(255, 80, 80, 0.9);
+      background: rgba(255, 0, 0, 0.98);
+      box-shadow: 0 0 18px rgba(255, 0, 0, 0.9);
     }
     body.alert .ring {
-      border: 5px solid rgba(255, 80, 80, 0.58);
-      box-shadow: 0 0 22px rgba(255, 80, 80, 0.20) inset;
+      border: 5px solid rgba(255, 0, 0, 0.78);
+      box-shadow: 0 0 22px rgba(255, 0, 0, 0.25) inset;
     }
 
     .ring:nth-child(1) { animation-delay: 0.0s; }
@@ -134,6 +134,8 @@
       color: rgba(255,255,255,0.45);
       z-index: 3;
       pointer-events: none;
+    
+      display: none;
     }
   </style>
 </head>
@@ -168,15 +170,11 @@
     const WAVES_SIZE_PX = 240; // HARD CHECK: must remain 240
     const MIN_ALERT_MS = 1500; // per request
 
+    let pressStartMs = 0;
+    let stopTimer = null;
+
     let audioCtx = null, osc = null, gain = null;
     let alertOn = false;
-
-    // v11 ascending-only siren burst parameters (locked)
-    const FREQ_LOW = 420;
-    const FREQ_HIGH = 780;
-    const BURST_ON_MS = 800;
-    const BURST_OFF_MS = 20;
-    let burstTimer = null;
 
     function hardVerify() {
       // 1) Verify label text exactly
@@ -206,9 +204,8 @@
       osc = audioCtx.createOscillator();
       gain = audioCtx.createGain();
 
-      // Timbre: sawtooth (as requested)
-      osc.type = 'sawtooth';
-      osc.frequency.value = FREQ_LOW;
+      osc.type = 'square';
+      osc.frequency.value = 750;
 
       gain.gain.value = 0.0;
 
@@ -217,66 +214,45 @@
       osc.start();
     }
 
-    function soundOnWithAscendingSweep() {
-      ensureAudio();
-
-      // iPhone requirement: resume in user gesture path (no await)
-      try { if (audioCtx.state !== 'running') audioCtx.resume(); } catch (e) {}
-
-      const t = audioCtx.currentTime;
-
-      // Reset to low, then ramp up ONLY
-      osc.frequency.cancelScheduledValues(t);
-      osc.frequency.setValueAtTime(FREQ_LOW, t);
-      osc.frequency.linearRampToValueAtTime(FREQ_HIGH, t + (BURST_ON_MS / 1000));
-
-      // Gain on
-      gain.gain.cancelScheduledValues(t);
-      gain.gain.setTargetAtTime(0.35, t, 0.02);
-    }
-
-    function soundOff() {
+    function setGain(vol) {
       if (!audioCtx || !gain) return;
       const t = audioCtx.currentTime;
       gain.gain.cancelScheduledValues(t);
-      gain.gain.setTargetAtTime(0.0, t, 0.02);
+      gain.gain.setTargetAtTime(vol, t, 0.01);
     }
 
-    function startBurstLoop() {
-      soundOnWithAscendingSweep();
+    // index_v7 beep pattern: ON 120 / OFF 90 / ON 120 / OFF 250 (repeat)
+    const beepPattern = [
+      [120, 0.26],
+      [90,  0.00],
+      [120, 0.26],
+      [250, 0.00],
+    ];
+    let beepIndex = 0;
+    let beepTimer = null;
 
-      burstTimer = setTimeout(() => {
-        // Pause at max frequency
-        soundOff();
+    function scheduleBeep() {
+      if (!alertOn) return;
+      const step = beepPattern[beepIndex];
+      beepIndex = (beepIndex + 1) % beepPattern.length;
 
-        burstTimer = setTimeout(() => {
-          if (alertOn) startBurstLoop();
-        }, BURST_OFF_MS);
-
-      }, BURST_ON_MS);
-    }
-
-    function stopBurstLoop() {
-      if (burstTimer) {
-        clearTimeout(burstTimer);
-        burstTimer = null;
-      }
-      soundOff();
+      setGain(step[1]);
+      beepTimer = setTimeout(scheduleBeep, step[0]);
     }
 
     function startBuzz() {
-      // Start repeating ascending bursts while pressed
-      if (burstTimer) {
-        clearTimeout(burstTimer);
-        burstTimer = null;
-      }
-      startBurstLoop();
+      ensureAudio();
+      // Resume in user gesture path (sync) for iOS/Chrome
+      try { if (audioCtx.state !== 'running') audioCtx.resume(); } catch (e) {}
+
+      beepIndex = 0;
+      if (beepTimer) { clearTimeout(beepTimer); beepTimer = null; }
+      scheduleBeep();
     }
 
     function stopBuzz() {
-      stopBurstLoop();
-    }
-      setVolume(0.0);
+      if (beepTimer) { clearTimeout(beepTimer); beepTimer = null; }
+      setGain(0.0);
     }
 
     function startAlert(src) {
